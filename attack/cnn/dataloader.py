@@ -1,70 +1,78 @@
+import torch
 from torch.utils.data import Dataset, DataLoader
+from subsampler import sample_file
 import numpy as np
 import os
 import re
 
-def get_files(directory, format, digital_index=0):
-
-    format = re.compile(format)
-    files = os.listdir(directory)
-
-    #file_dict = {}
-    file_list = [] # fname, fpath, label
-
-    for fname in files:
-        if match := format.match(fname):
-            fpath = os.path.join(directory, fname)
-
-            dvalue = int(match.groups()[digital_index])
-            
-            file_list.append((fname, fpath, dvalue))
-
-            #if dvalue in file_dict:
-            #    file_dict[dvalue].append(fpath)
-            #else:
-            #    file_dict[dvalue] = [fpath]
-
-    return file_path #file_dict, file_path
-
 class TraceDataset(Dataset):
-    cached_traces = {}
+    #cached_traces = {}
+    labelled_traces = {}
     trace_list    = []
 
-    def __init__(self, file_list, cache=True):
-        self.file_list = file_list
-        self.cache     = cache
+    def __init__(self, file_list, label_dict, cache=True, trace_cache={}, device=None):
+        self.file_list  = file_list
+        self.label_dict = label_dict
+        self.cache      = cache
+        self.device     = device
+
+        if cache: self.trace_cache = trace_cache
+
+    @classmethod
+    def purge_cache(cls):
+        cls.cached_traces = {}
 
     def __len__(self):
         return len(self.file_list)
 
     def __getitem__(self, index):
-        fname, fpath, label = self.file_list[index]
+        fname, fpath, label, sample_info = self.file_list[index]
         label = self.process_label(label)
 
-        if self.cache and fname in self.cached_traces:
-            return self.cached_traces[fname], label
+        if self.cache and (fname, fpath) in self.trace_cache:
+            return self.trace_cache[(fname, fpath)], label
         else:
-            return self.load_trace(fname, fpath), label
+            return self.load_trace(fname, fpath, label, sample_info), label
 
     def get_info(self, index):
         return self.file_list[index]
 
-    def load_trace(self, fname, fpath):
-        with open(fpath, 'r') as file:
-            header = file.readline()
-            #time_arr = []
-            valu_arr = []
+    def get_by_label(self, label, index=0):
+        index = self.label_dict[label][index]
+        return self[index][0]
 
-            for line in file.readlines():
-                time, value = line.strip().split()
-                #time_arr.append(np.float32(time))
-                valu_arr.append(np.float32(value))
+    def load_trace(self, fname, fpath, label, sample_info):
+        sample_mode, sample_int, max_sample = sample_info
 
-        trace = np.array(valu_arr, dtype=np.float32)
+        if sample_mode == 'timed':
+            with open(fpath, 'r') as file:
+                header = file.readline()
+                splitf = lambda x: (np.float32(x[0]), np.float32(x[1]))
+
+                valu_arr = [splitf(line.strip().split()) for line in file.readlines()]
+                time_arr, valu_arr = zip(*valu_arr)
+                trace = (np.array((time_arr, valu_arr), dtype=np.float32)) #, np.array(valu_arr, dtype=np.float32))
+
+        elif sample_mode:
+            valu_arr = sample_file(fpath, sample_int, max_sample, sample_mode=sample_mode)
+            trace = np.array(valu_arr, dtype=np.float32)
+
+        else:
+            with open(fpath, 'r') as file:
+                header = file.readline()
+                valu_arr = [np.float32(line.strip().split()[1]) for line in file.readlines()]
+                trace = np.array(valu_arr, dtype=np.float32)[:max_sample]
+
+        #trace = torch.tensor(valu_arr, dtype=torch.float32, device=self.device)
 
         if self.cache: 
-            self.cached_traces[fname] = trace
+            self.trace_cache[(fname, fpath)] = trace
             self.trace_list.append(trace)
+
+            if label in self.labelled_traces:
+                self.labelled_traces[label].append(trace)
+            else:
+                self.labelled_traces[label] = [trace]
 
         return trace
     
@@ -74,30 +82,34 @@ class TraceDataset(Dataset):
         assert self.cache == True
 
         print("Caching all traces")
-        for fname, fpath, label in self.file_list:
-            self.load_trace(fname, fpath)
+        for args in self.file_list:
+            self.load_trace(*args)
         print("DONE Caching all traces")
 
 class TraceDatasetBW(TraceDataset):
-    def __init__(self, file_list, bit_select, cache=True):
+    def __init__(self, file_list, label_dict, bit_select, cache=True, trace_cache={}, device=None):
         self.bit_mask = 1 << bit_select
-        super().__init__(file_list, cache=cache)
+        super().__init__(file_list, label_dict, cache=cache, trace_cache=trace_cache, device=device)
 
     def process_label(self, label):
         return 1 if label & self.bit_mask else 0
 
 class TraceDatasetBuilder:
-    def __init__(self, adc_bitwidth=8, cache=True):
-        self.file_list        = []
-        self.cache = cache
-        self.adc_bits = adc_bitwidth
+    def __init__(self, adc_bitwidth=8, cache=True, device=None):
+        self.file_list  = []
+        self.label_dict = {}
+        self.cache      = cache
+        self.adc_bits   = adc_bitwidth
+        self.device     = device
 
-        self.dataset = None
+        self.dataset    = None
         self.dataloader = None
-        self.datasets = []
+        self.datasets   = []
         self.dataloaders = []
 
-    def add_files(self, directory, format, label_group):
+        self.trace_cache = {}
+
+    def add_files(self, directory, format, label_group=0, sample_mode=None, sample_int=0.1e-6, sample_time=300e-6, max_sample=None):
         ''' Builds list of powertrace files
         Inputs:
             directory   : folder to search for files
@@ -109,22 +121,33 @@ class TraceDatasetBuilder:
         format = re.compile(format)
         fnames = os.listdir(directory)
 
+        if sample_mode: max_sample = sample_time / sample_int
+        sample_info = (sample_mode, sample_int, max_sample)
+
+        i = 0
         for fname in fnames:
             if match := format.match(fname):
                 fpath = os.path.join(directory, fname)
                 dvalue = int(match.groups()[label_group])
 
-                self.file_list.append((fname, fpath, dvalue))
+                self.file_list.append((fname, fpath, dvalue, sample_info))
+
+                if dvalue in self.label_dict: self.label_dict[dvalue].append(i)
+                else:                         self.label_dict[dvalue] = [i]
+                i += 1
 
     def build(self):
-        self.dataset = TraceDataset(self.file_list, cache=self.cache)
+        self.dataset = TraceDataset(self.file_list, self.label_dict, cache=self.cache, trace_cache=self.trace_cache, device=self.device)
         for b in range(self.adc_bits):
-            self.datasets.append(TraceDatasetBW(self.file_list, b, cache=self.cache))
+            self.datasets.append(TraceDatasetBW(self.file_list, self.label_dict, b, cache=self.cache, trace_cache=self.trace_cache, device=self.device))
 
-        if self.cache:
-            self.dataset.cache_all()
+    def cache_all(self):
+        assert self.cache
+        self.dataset.cache_all()
 
     def build_dataloaders(self, **kwargs): # batch_size=256, shuffle=True
+        if self.device and 'pin_memory' not in kwargs: kwargs['pin_memory'] = True
+
         self.dataloader = DataLoader(self.dataset, **kwargs)
         self.dataloaders = [DataLoader(dataset, **kwargs) for dataset in self.datasets]
 
