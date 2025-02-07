@@ -1,22 +1,30 @@
+//*****************************************************************************
+// File        : digital_ADC.v
+// Author      : kareem
+// Description : Basic Unprotected ADC without FSM
+//*****************************************************************************
+
 module digitalADC #(
     parameter ASYNC = 0,
-    parameter NUM_SENSORS = 1,
     parameter WIDTH = 8
 ) (
-    input  clk,
-    input  rst,
-    input  comp_out, // [NUM_SENSORS-1:0]
+    input               clk,
+    input               rst,
+    input               comp_out,
 
-    output reg valid, // [NUM_SENSORS-1:0]
-    output reg [WIDTH-1:0] digital_val, // [NUM_SENSORS-1:0]
+    output              valid,       
+    output [WIDTH-1:0]  digital_val
 );
+
+    wire [WIDTH-1:0] count_value;
+    wire             comp_pulsed;
 
     counter_half #(
         .WIDTH(WIDTH)
     ) counter (
         .clk        (clk        ),
         .rst        (rst        ),
-        .en         (           ),
+        .en         (1          ),
         .set        (0          ),
         .setval     ('0         ),
         .count      (count_value),
