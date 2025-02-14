@@ -1,6 +1,7 @@
 from dataloader import TraceDatasetBuilder
 from cnn_gen import GenericCNN
 import json
+#import pprint
 
 import os
 import sys
@@ -82,7 +83,7 @@ class ProgressBar:
         if not(self.running): return
         if value == -1: value = self.max_val
 
-        print(f"{self.f_start.format(**self.kwargs)}[{self.bar_chr*self.bar_len}] {value:{self.val_len}}/{self.max_val} {self.f_end.format(**self.kwargs)}", end='\n', file=self.out, flush=True)
+        print(f"{self.f_start.format(**self.kwargs)}[{self.bar_chr*self.bar_len}] {value:{self.val_len}}/{self.max_val} {self.f_end.format(**self.kwargs)}", file=self.out, flush=True)
 
         self.kwargs = {}
         self.running = False
@@ -195,6 +196,7 @@ class Dataset(HashableBase):
         self.type = info['type']
         self.frmt = info['format']
         self.cols = info['columns']
+        self.lblf = eval(info.get("label", "lambda gs: int(gs[0])"), globals(), {})
         self.paths = [os.path.join(data_dir, path) for path in info.get('paths', [])]
         if path := info.get('path', None):
             self.paths.append(os.path.join(data_dir, path))
@@ -232,7 +234,7 @@ class RawDataset(Dataset):
     def build(self, adc_bitwidth=8, device=None):
         super().build(adc_bitwidth, device)
         for path in self.paths:
-            self.builder.add_files(path, self.frmt, max_sample=self.len)
+            self.builder.add_files(path, self.frmt, label_func=self.lblf, max_sample=self.len)
         self.builder.build()
 
 class SampledDataset(Dataset):
@@ -251,7 +253,7 @@ class SampledDataset(Dataset):
     def build(self, adc_bitwidth=8, device=None):
         super().build(adc_bitwidth, device)
         for path in self.paths:
-            self.builder.add_files(path, self.frmt, sample_mode=self.mode, sample_int=self.interval, sample_time=self.duration)
+            self.builder.add_files(path, self.frmt, label_func=self.lblf, sample_mode=self.mode, sample_int=self.interval, sample_time=self.duration)
         self.builder.build()
 
 class TimedDataset(Dataset):
@@ -265,7 +267,7 @@ class TimedDataset(Dataset):
     def build(self, adc_bitwidth=8, device=None):
         super().build(adc_bitwidth, device)
         for path in self.paths:
-            self.builder.add_files(path, self.frmt, sample_mode="timed")
+            self.builder.add_files(path, self.frmt, label_func=self.lblf, sample_mode="timed")
         self.builder.build()
 
 
@@ -279,6 +281,7 @@ class Test(HashableBase):
         self.test_dataset  = datasets[info['test_dataset']] if 'test_dataset' in info else self.datasets[0]
         self.skip          = info.get('skip',           False)
         self.learning_rate = info.get('learning_rate',  defaults['learning_rate'])
+        self.max_learn_rate= info.get('max_learn_rate', defaults['max_learn_rate'])
         self.optimizer     = info.get('optimizer',      defaults['optimizer'])
         self.loss          = info.get('loss',           defaults['loss'])
         self.loss_se       = info.get('loss_se',        defaults['loss_se'])
@@ -297,6 +300,7 @@ class Test(HashableBase):
         that.datasets = self.datasets
         that.test_dataset  = self.test_dataset
         that.learning_rate = self.learning_rate
+        that.max_learn_rate= self.max_learn_rate
         that.optimizer     = self.optimizer
         that.loss          = self.loss
         that.loss_se       = self.loss_se
@@ -307,7 +311,7 @@ class Test(HashableBase):
         return that
 
     def get_csv(self):
-        return f"{self.learning_rate},{self.optimizer},{self.batch_size},{self.max_epochs},{self.max_accuracy},{self.max_loss}"
+        return f"{self.learning_rate},{self.max_learn_rate},{self.optimizer},{self.batch_size},{self.max_epochs},{self.max_accuracy},{self.max_loss}"
 
     def get_optimizer(self, cnn):
         if self.optimizer == 'Adam':
@@ -320,7 +324,7 @@ class Test(HashableBase):
             return optim.Adam(cnn.parameters(), lr=self.learning_rate)
 
         if self.optimizer == 'SGD':
-            return optim.SGD(cnn.parameters(), lr=self.learning_rate)
+            return optim.SGD(cnn.parameters(),  lr=self.learning_rate)
 
         raise NotImplementedError("Unsupported optimizer")
 
@@ -347,18 +351,35 @@ class Regression:
         with open(self.json, "r") as file: 
             self.dict = json.load(file)
 
-        # print(json.dumps(self.dict, indent=2))
-
         self.defaults = self.dict['defaults']
 
         self.networks = {name: Network(name, info) for name, info in self.dict['networks'].items()}
-        self.datasets = {name: Dataset.from_info(name, info) for name, info in self.dict['datasets'].items()}
-        self.build_tests(self.dict['tests'])
+        self.gen_datasets(self.dict['datasets'])
+        self.gen_tests(self.dict['tests'])
 
-    def build_tests(self, tests):
+    def gen_datasets(self, dict):
+        self.datasets = {}
+
+        for name, info in dict.items():
+            if info['type'] == 'sampled' and isinstance(info['sample_mode'], list):
+                for mode in info['sample_mode']:
+                    inf = info.copy()
+                    inf['sample_mode'] = mode
+                    nam=f"{name}:{mode.lower()}"
+                    self.datasets[nam] = Dataset.from_info(nam, inf)
+                inf = info.copy()
+                inf['type'] = 'timed'
+                nam=f"{name}:tru"
+                self.datasets[nam] = Dataset.from_info(nam, inf)
+            else:
+                self.datasets[name] = Dataset.from_info(name, info)
+
+        #pprint.pprint(self.datasets)
+
+    def gen_tests(self, dict):
         self.tests = []
 
-        for info in tests:
+        for info in dict:
             test = Test(info, self.networks, self.datasets, self.defaults)
             if test.skip: continue
 
@@ -371,8 +392,11 @@ class Regression:
                 self.tests.append(test)
 
     def build_datasets(self, *datasets, device=None):
+        seen = set()
         for d in datasets:
-            d.build(adc_bitwidth=self.adc_bitwidth, device=device)
+            if d not in seen:
+                seen.add(d)
+                d.build(adc_bitwidth=self.adc_bitwidth, device=device)
 
     def run_all(self):
         # Header
@@ -382,7 +406,7 @@ class Regression:
                 with open(self.csv, "w") as file:
                     file.write("Run ID,Network,Network ID,Network Type,Definition,Inputs,")
                     file.write("Dataset,Datset ID,Type,Path,Dataset Cols,Datset Info,Test ID,")
-                    file.write("Learning Rate,Optimizer,Batch Size,Max Epochs,Target Accuracy,")
+                    file.write("Learning Rate,Max LR,Optimizer,Batch Size,Max Epochs,Target Accuracy,")
                     file.write("Target Loss,Bit,Accuracy,Peak Accuracy,Test Accuracy,Loss,Epoch,Runtime\n")
 
         # Skipped tests
@@ -423,7 +447,7 @@ class Regression:
                     print(f"{run_hash},{network.name},{dataset.name},{test}")
 
                     if not(self.args.preview):
-                        fig, axs = plt.subplots(2, figsize=(8,8))
+                        fig, axs = plt.subplots(2, figsize=(4,4))
                         fig.suptitle(f"{run_hash}\n{network.name}  -  {dataset.name}  -  {test.optimizer}({test.learning_rate})\n")
                         axs[0].set_title("Loss")
                         axs[1].set_title("Accuracy")
@@ -488,6 +512,8 @@ class Regression:
 
         criterion = test.get_loss(network) #nn.CrossEntropyLoss()
         optimizer = test.get_optimizer(cnn)
+        #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=100, factor=0.7)
+        scheduler = None
     
         progress = ProgressBar(f_start="Training ", f_end="{model} | Loss {loss:8} | Accuracy {acc:6}:{pacc:6} | Test {tst:8} | {msg}", max_val=test.max_epochs)
         progress.start(model=run_hash, loss=1.0, acc=0.0, pacc=0.0, tst=0.0, msg="")
@@ -512,9 +538,11 @@ class Regression:
 
                     # Backward
 
+                    if single_ended: labels = labels.reshape(output.shape)
                     loss = criterion(output, labels)
                     loss.backward()
                     optimizer.step()
+                    if scheduler: scheduler.step(loss)
 
                     # Calculate Accuracy
 
@@ -544,10 +572,10 @@ class Regression:
                         plt.pause(0.01)
 
                 if accuracy >= test.max_accuracy:
-                    progress.update(epoch, msg=f"Reached target accuracy {accuracy} >= {test.max_accuracy} at epoch {epoch}"); break
+                    progress.update(epoch, msg=f"Target acc reached {test.max_accuracy}"); break
 
                 if loss <= test.max_loss:
-                    progress.update(epoch, msg=f"Reached target loss {loss} <= {test.max_loss} at epoch {epoch}"); break
+                    progress.update(epoch, msg=f"Target loss reached {test.max_loss}"); break
         except KeyboardInterrupt as e:
             progress.update(epoch, msg="Job Interrupted")
             progress.stop(epoch)
@@ -559,7 +587,7 @@ class Regression:
         axs[0].legend()
         axs[1].legend()
         if not self.args.headless:
-            plt.pause(0.01)
+            plt.pause(5)
 
         if self.args.nowrite: return
 
@@ -585,8 +613,7 @@ class Regression:
             output = cnn(inputs)
 
             if single_ended:
-                print(output)
-                print(labels)
+                labels = labels.reshape(output.shape)
                 correct += (output.round() == labels.round()).sum()
             else:
                 _, predicted = torch.max(output, 1)
@@ -594,7 +621,6 @@ class Regression:
         test_accuracy = correct / len(test.test_dataset.builder.dataset)
         progress.update(epoch, tst=round(float(test_accuracy), 6))
         progress.stop(epoch+1)
-
 
         with open(self.csv, "a") as file:
             file.write(f"{run_hash},{network.name},{network},{dataset.name},{dataset},{test},{bit},{accuracy},{test_accuracy},{loss},{epoch},{runtime}\n")
