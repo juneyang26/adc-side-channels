@@ -36,7 +36,8 @@ argparser.add_argument("--nndebug", const=True, default=False, action='store_con
 
 pwd      = os.path.dirname(os.path.abspath(__file__))
 proj_dir = os.path.dirname(os.path.dirname(pwd))
-data_dir = os.path.join(proj_dir, 'analog', 'outfiles')
+#data_dir = os.path.join(proj_dir, 'analog', 'outfiles')
+data_dir = os.path.join(proj_dir, 'attack','PowerTraces', 'analog_1px') # directory that looks for the traces
 
 # Fake Args ######################################
 
@@ -185,6 +186,7 @@ class Network(HashableBase):
             return network
         else:
             desc = f"{input_len},{input_ch}:{self.definition}"
+            print(f"network create desc is {desc}")
             try:
                 return GenericCNN(desc, debug=args.nndebug)
             except Exception as e:
@@ -352,8 +354,14 @@ class Test(HashableBase):
     def get_loss(self, network):
         if network.type == 'bitwise':
             return getattr(nn, self.loss)()
-        else:
+        elif network.type == 'single_ended':
             return getattr(nn, self.loss_se)()
+        else:
+            """
+            https://discuss.pytorch.org/t/what-kind-of-loss-is-better-to-use-in-multilabel-classification/32203/3
+            When using sigmoid within our model, use nn.BCEloss. Otherwise, nn.BCEWithLogitsLoss applies sigmoid internally
+            """
+            return nn.BCELoss 
 
 # Regression #####################################
 
@@ -425,7 +433,7 @@ class Regression:
                     file.write("Run ID,Network,Network ID,Network Type,Definition,Inputs,")
                     file.write("Dataset,Datset ID,Type,Path,Dataset Cols,Datset Info,Test ID,")
                     file.write("Learning Rate,LR Decay,Max LR,Optimizer,Batch Size,Max Epochs,Target Accuracy,")
-                    file.write("Target Loss,Bit,Accuracy,Peak Accuracy,Test Accuracy,Loss,Epoch,Runtime\n")
+                    file.write("Target Loss,Bit,Training Accuracy,Training Peak Accuracy,Test Accuracy,Loss,Epoch,Runtime\n")
 
         # Skipped tests
 
@@ -468,7 +476,7 @@ class Regression:
                         fig, axs = plt.subplots(2, figsize=(FIGX,FIGY))
                         fig.suptitle(f"{run_hash}\n{network.name}  -  {dataset.name}  -  {test.optimizer}({test.learning_rate})\n")
                         axs[0].set_title("Loss")
-                        axs[1].set_title("Accuracy")
+                        axs[1].set_title("Training Accuracy")
                     else:
                         axs = None
     

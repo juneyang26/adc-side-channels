@@ -10,6 +10,11 @@
             "type"       : "single_ended",
             "inputs"     : 1
         },
+        "paper_se_sigmoid" : {
+            "definition" : "C(5,5,1):R:P(5,5):C(5,3,1):R:P(2,2):F(100):R:F(100):R:F(100):R:F(256):Sd",
+            "type"       : "single_ended_sigmoid",
+            "inputs"     : 1
+        },
         "deep" : {
             "definition" : "C(5,5,1):R:C(5,5,1):R:C(5,5,1):R:C(5,5,1):P(5,5):R:C(5,5,1):P(5,5):R:F(256):R:F(256):R:F(256):R:F(128):R:F(64):R:F(2):S",
             "type"       : "bitwise",
@@ -178,7 +183,68 @@
             "sample_mode"     : ["MIN", "MAX"],
             "sample_interval" : 0.1e-6,
             "sample_duration" : 256e-6
+        },
+        "analog_1px_tt_xl" : {
+            "path" : "analog_1px_tt_xl",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_(0\\.\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(float(gs[0])*256)",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_1px_tt_pl" : {
+            "path" : "analog_1px_tt_pl",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_(0\\.\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(float(gs[0])*256)",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_1px_tt_rx" : {
+            "path" : "analog_1px_tt_rx",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((0\\.)?\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(round(float(gs[0])*256))",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_1px_sf_rx" : {
+            "path" : "analog_1px_sf_rx",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((0\\.)?\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(round(float(gs[0])*256))",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_1px_ss_rx" : {
+            "path" : "analog_1px_ss_rx",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((0\\.)?\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(round(float(gs[0])*256))",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_1px_tt_rl" : {
+            "path" : "analog_1px_tt_rl",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((0\\.)?\\d+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: int(round(float(gs[0])*256))",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
         }
+
     },
     "tests" : [
         {
@@ -264,13 +330,13 @@
         },
         {
             "desc"          : "Test 3A: A1B paper : unprotected attack protect",
-            "skip"          : false,
+            "skip"          : true,
             "networks"      : ["paper"],
             "datasets"      : ["analog_1px_tt_xx:max"],
             "test_dataset"  : "analog_1px_tt_qx:max",
-            "learning_rate" : [0.0003],
-            "learning_decay": 0.005,
-            "max_epochs"    : 5000
+            "learning_rate" : [0.0001],
+            "learning_decay": 0.0001,
+            "max_epochs"    : 3000
         },
         {
             "desc"          : "Test 3B: A1S paper : unprotected attack protect",
@@ -302,6 +368,50 @@
             "learning_rate" : [0.001],
             "learning_decay": 0.0005,
             "max_epochs"    : 20000,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: unprotected layout, Test: protected layout",
+            "skip"          : true,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_xl:max"],
+            "test_dataset"  : "analog_1px_tt_pl:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: random layout, Test: random layout",
+            "skip"          : true,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_pl:max"],
+            "test_dataset"  : "analog_1px_tt_pl:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: unprotected, Test: third protection",
+            "skip"          : true,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_xx:max"],
+            "test_dataset"  : "analog_1px_tt_rx:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: Third Protected, Test: third protection",
+            "skip"          : false,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_rx:max"],
+            "test_dataset"  : "analog_1px_tt_rx:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
             "train_split"   : 0.5
         },
         {

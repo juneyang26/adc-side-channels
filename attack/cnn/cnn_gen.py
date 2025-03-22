@@ -33,8 +33,9 @@ def build_cnn(definition, debug=False):
     shapes = [in_shp]
     layers = []
     flatten = -1
-
+    print(f"tokens is {tokens}")
     for token in tokens[1:]:
+        print(f"token in tokens is {token}")
         if m := re_f.match(token):
             out_shape = int(m.groups()[0])
 
@@ -70,6 +71,9 @@ def build_cnn(definition, debug=False):
 
         elif token == 'S':
             layers.append(nn.Softmax(dim=1))
+
+        elif token == 'Sd':
+            layers.append(nn.Sigmoid())
 
         else:
             raise RuntimeError(f"Could not parse definition entry <{token}>")
