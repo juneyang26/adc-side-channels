@@ -4,6 +4,7 @@ from subsampler import sample_file
 import numpy as np
 import os
 import re
+import typing
 
 TraceInfo = namedtuple("TraceInfo", ["trace", "start", "stop"])
 
@@ -44,13 +45,16 @@ class TraceDataset(Dataset):
         return self
 
     def get_item(self, index):
-        fname, fpath, label, sample_info = self.file_list[index]
-        label = self.process_label(label)
+        fname, fpath, pre_label, sample_info = self.file_list[index]
+        label = self.process_label(pre_label)
 
         if self.cache and fpath in self.trace_cache:
             return self.trace_cache[fpath], label
         else:
-            return self.load_trace(fname, fpath, label, sample_info), label
+            if isinstance(label, typing.Hashable): 
+                return self.load_trace(fname, fpath, label, sample_info), label
+            else:
+                return self.load_trace(fname, fpath, pre_label, sample_info), label
 
     def get_info(self, index):
         return self.file_list[index]
@@ -89,6 +93,7 @@ class TraceDataset(Dataset):
                 trace = np.array(valu_arr, dtype=DTYPE)[:max_sample]*self.mult
 
         trace_info = TraceInfo(trace, tstart, tstop)
+        #print(trace_info)
 
         if self.cache: 
             self.trace_cache[fpath] = trace_info
@@ -155,6 +160,8 @@ class TraceDatasetBuilder:
             if match := format.match(fname):
                 fpath = os.path.join(directory, fname)
                 dvalue = label_func(match.groups())
+                print(f"match.groups is {match.groups()}")
+                print(f"fpath is {fpath} \n dvalue is {dvalue}\n\n")
 
                 self.file_list.append((fname, fpath, dvalue, sample_info))
 
@@ -162,6 +169,8 @@ class TraceDatasetBuilder:
                 else:                         self.label_dict[dvalue] = [i]
                 i += 1
 
+        print(self.label_dict)
+        
     def build(self):
         self.dataset = TraceDataset(self.file_list, self.label_dict, mult=self.mult, cache=self.cache, trace_cache=self.trace_cache, device=self.device)
         for b in range(self.adc_bits):

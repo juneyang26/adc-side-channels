@@ -37,7 +37,9 @@ argparser.add_argument("--nndebug", const=True, default=False, action='store_con
 pwd      = os.path.dirname(os.path.abspath(__file__))
 proj_dir = os.path.dirname(os.path.dirname(pwd))
 #data_dir = os.path.join(proj_dir, 'analog', 'outfiles')
-data_dir = os.path.join(proj_dir, 'attack','PowerTraces', 'analog_1px') # directory that looks for the traces
+#data_dir = os.path.join(proj_dir, 'attack','PowerTraces', 'analog_1px') # directory that looks for the traces
+data_dir = os.path.join(proj_dir, 'attack','PowerTraces') # combine all 1px and 5px into a single folder later
+
 
 # Fake Args ######################################
 
@@ -361,7 +363,8 @@ class Test(HashableBase):
             https://discuss.pytorch.org/t/what-kind-of-loss-is-better-to-use-in-multilabel-classification/32203/3
             When using sigmoid within our model, use nn.BCEloss. Otherwise, nn.BCEWithLogitsLoss applies sigmoid internally
             """
-            return nn.BCELoss 
+            #return nn.BCEWithLogitsLoss
+            return nn.BCEWithLogitsLoss()
 
 # Regression #####################################
 
@@ -489,11 +492,12 @@ class Regression:
                                     print(f"  SKIPPING {run_hash_i}"); continue
                                     skip = True
                                 self.run_eval_cnn(test, network, dataset, device, run_hash_i, axs, bit=i)
-                        elif network.type == 'single_ended':
+                        elif network.type == 'single_ended' or network.type == 'single_ended_sigmoid':
                             if run_hash in skip_tests: 
                                 print(f"  SKIPPING {run_hash}"); continue
                                 skip = True
                             self.run_eval_cnn(test, network, dataset, device, run_hash, axs, bit=-1)
+                            
                         else:
                             raise RuntimeError(f"Unsupported network type {network.type}")
 
@@ -564,11 +568,23 @@ class Regression:
 
                     # Backward
 
-                    if single_ended: labels = labels.reshape(output.shape)
-                    loss = criterion(output, labels)
+                    if single_ended: labels = labels.reshape(output.shape) # not for multi label/class
+
+
+                    #torch.set_printoptions(threshold=float('inf'))
+                    #print(labels.long())
+                    multi_hot_labels = torch.zeros_like(output) # makes same dimensions[256, 256]
+                    multi_hot_labels.scatter_(1, labels.long(), 1) # hot encoding at the indices represented by multiple pixel digital values
+                    #print(multi_hot_labels.size())
+                    #print(multi_hot_labels)
+                    #print(labels)
+                    if (network.type == "single_ended_sigmoid"):
+                        loss = criterion(output, multi_hot_labels)
+                    else:
+                        loss = criterion(output, labels)
                     loss.backward()
                     optimizer.step()
-                    if scheduler: scheduler.step(loss)
+                    if scheduler:  scheduler.step(loss)
 
                     # Calculate Accuracy
 

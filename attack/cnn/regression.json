@@ -11,7 +11,7 @@
             "inputs"     : 1
         },
         "paper_se_sigmoid" : {
-            "definition" : "C(5,5,1):R:P(5,5):C(5,3,1):R:P(2,2):F(100):R:F(100):R:F(100):R:F(256):Sd",
+            "definition" : "C(5,5,1):R:P(5,5):C(5,3,1):R:P(2,2):F(100):R:F(100):R:F(100):R:F(256)",
             "type"       : "single_ended_sigmoid",
             "inputs"     : 1
         },
@@ -243,6 +243,26 @@
             "sample_mode"     : ["MIN", "MAX"],
             "sample_interval" : 0.1e-6,
             "sample_duration" : 256e-6
+        },
+        "analog_5px_tt_pm" : {
+            "path" : "analog_5px_tt_pm",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((?:\\d+\\.\\d+_?)+).txt",
+            "columns" : 1,
+            "label": "lambda gs: tuple([255 if int(round(float(x) * 256)) == 256 else int(round(float(x) * 256)) for x in gs[0].split('_')])",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
+        },
+        "analog_5px_tt_xx" : {
+            "path" : "analog_5px_tt_xx",
+            "type" : "sampled",
+            "format"  : "raw_s\\d+_((?:\\d+\\.\\d+_?)+).txt",
+            "columns" : 1,
+            "label"   : "lambda gs: tuple([int(round(float(x) * 256)) for x in gs[0].split('_')])",
+            "sample_mode"     : ["MIN", "MAX"],
+            "sample_interval" : 0.1e-6,
+            "sample_duration" : 256e-6
         }
 
     },
@@ -405,10 +425,31 @@
         },
         {
             "desc"          : "Train: Third Protected, Test: third protection",
-            "skip"          : false,
+            "skip"          : true,
             "networks"      : ["paper"],
             "datasets"      : ["analog_1px_tt_rx:max"],
             "test_dataset"  : "analog_1px_tt_rx:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: Third Protected Layout, Test: third protection layout",
+            "skip"          : true,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_rx:max"],
+            "test_dataset"  : "analog_1px_tt_rx:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5
+        },
+        {
+            "desc"          : "Train: Third Protected Layout, Test: third protection layout",
+            "skip"          : true,
+            "networks"      : ["paper"],
+            "datasets"      : ["analog_1px_tt_rl:max"],
             "learning_rate" : [0.0002],
             "learning_decay": 0.0003,
             "max_epochs"    : 2500,
@@ -420,7 +461,20 @@
             "networks"      : ["resnet101"],
             "datasets"      : ["a1u_tt:lin"],
             "learning_rate" : [1e-5]
+        },
+        {
+            "desc"          : "5px sanity check... Building multi-label network currently WIP",
+            "skip"          : false,
+            "networks"      : ["paper_se_sigmoid"],
+            "datasets"      : ["analog_5px_tt_pm:max"],
+            "test_dataset"  : "analog_5px_tt_pm:max",
+            "learning_rate" : [0.0002],
+            "learning_decay": 0.0003,
+            "max_epochs"    : 2500,
+            "train_split"   : 0.5,
+            "loss"          : "BCELoss"
         }
+
     ],
     "defaults" : {
         "optimizer"     : "Adam",
