@@ -361,7 +361,7 @@ class Test(HashableBase):
         else:
             """
             https://discuss.pytorch.org/t/what-kind-of-loss-is-better-to-use-in-multilabel-classification/32203/3
-            When using sigmoid within our model, use nn.BCEloss. Otherwise, nn.BCEWithLogitsLoss applies sigmoid internally
+            If using sigmoid explicitly before loss function, use nn.BCEloss. Otherwise, nn.BCEWithLogitsLoss applies sigmoid internally
             """
             #return nn.BCEWithLogitsLoss
             return nn.BCEWithLogitsLoss()
@@ -572,13 +572,16 @@ class Regression:
 
 
                     #torch.set_printoptions(threshold=float('inf'))
-                    #print(labels.long())
-                    multi_hot_labels = torch.zeros_like(output) # makes same dimensions[256, 256]
-                    multi_hot_labels.scatter_(1, labels.long(), 1) # hot encoding at the indices represented by multiple pixel digital values
-                    #print(multi_hot_labels.size())
-                    #print(multi_hot_labels)
-                    #print(labels)
+
                     if (network.type == "single_ended_sigmoid"):
+                        multi_hot_labels = torch.zeros_like(output) # makes same dimensions[256, 256]
+                        multi_hot_labels.scatter_(1, labels.long(), 1) # hot encoding at the indices represented by multiple pixel digital values
+                        #print(multi_hot_labels.size())
+                        #print(multi_hot_labels)
+                        #print(labels.size())
+                        #print(labels)
+                        #print(output.size())
+                        #print(output)
                         loss = criterion(output, multi_hot_labels)
                     else:
                         loss = criterion(output, labels)
@@ -591,6 +594,17 @@ class Regression:
                     if (epoch % acc_period) == 0:
                         if single_ended:
                             correct += (output.round() == labels.round()).sum()
+                        elif network.type == "single_ended_sigmoid":
+                            preds = torch.sigmoid(output)
+
+                            for i in range(test.batch_size):
+                                top_preds = torch.topk(preds[i], k=labels.shape[1]).indices
+                                actual_labels = labels[i]
+                                #print(top_preds)
+                                #print(actual_labels)
+                                # the labels are not guaranteed to be in numerical order, so check if its in the list of labels instead
+                                correct += sum([pred.item() in actual_labels for pred in top_preds]) 
+
                         else:
                             _, predicted = torch.max(output, 1)
                             correct += (predicted == labels).sum()
@@ -598,7 +612,12 @@ class Regression:
                 loss_arr[epoch] = loss
 
                 if epoch % acc_period == 0:
-                    accuracy = correct / len(dataset.builder.dataset)
+                    if network.type == "single_ended_sigmoid":
+                        # divide by the number of traces * number of pixels
+                        accuracy = correct / (len(dataset.builder.dataset) * labels.shape[1])
+                    else:
+                        accuracy = correct / len(dataset.builder.dataset)
+
                     acc_indx = epoch//acc_period
                     acc_arr[acc_indx] = accuracy
                     facc = float(accuracy)
@@ -660,10 +679,24 @@ class Regression:
             if single_ended:
                 labels = labels.reshape(output.shape)
                 correct += (output.round() == labels.round()).sum()
+            elif network.type == "single_ended_sigmoid":
+                preds = torch.sigmoid(output)
+                for i in range(test.batch_size):
+                    top_preds = torch.topk(preds[i], k=labels.shape[1]).indices # gets the top digital values based off probability. (N pixels = get N digital values)
+                    actual_labels = labels[i]
+                    # the labels (digital values) are not guaranteed to be in numerical order, so check if its in the list of labels instead
+                    correct += sum([pred.item() in actual_labels for pred in top_preds]) 
+
             else:
                 _, predicted = torch.max(output, 1)
                 correct += (predicted == labels).sum()
-        test_accuracy = correct / len(test.test_dataset.builder.dataset)
+        
+        if network.type == "single_ended_sigmoid":
+            # divide by the number of traces * number of pixels
+            test_accuracy = correct / (len(test.test_dataset.builder.dataset) * labels.shape[1])
+        else:
+            test_accuracy = correct / len(test.test_dataset.builder.dataset)
+
         progress.update(epoch, tst=round(float(test_accuracy), 4))
         progress.stop(epoch+1)
 

@@ -435,9 +435,9 @@
             "train_split"   : 0.5
         },
         {
-            "desc"          : "Train: Third Protected Layout, Test: third protection layout",
+            "desc"          : "Train: Third Protected, Test: third protection, Single ended",
             "skip"          : true,
-            "networks"      : ["paper"],
+            "networks"      : ["paper_se"],
             "datasets"      : ["analog_1px_tt_rx:max"],
             "test_dataset"  : "analog_1px_tt_rx:max",
             "learning_rate" : [0.0002],
@@ -450,10 +450,10 @@
             "skip"          : true,
             "networks"      : ["paper"],
             "datasets"      : ["analog_1px_tt_rl:max"],
-            "learning_rate" : [0.0002],
+            "learning_rate" : [0.0005],
             "learning_decay": 0.0003,
-            "max_epochs"    : 2500,
-            "train_split"   : 0.5
+            "max_epochs"    : 1500,
+            "train_split"   : 0.80
         },
         {
             "desc"          : "Test ??: Trying to get resnet to work",
@@ -470,9 +470,9 @@
             "test_dataset"  : "analog_5px_tt_pm:max",
             "learning_rate" : [0.0002],
             "learning_decay": 0.0003,
-            "max_epochs"    : 2500,
+            "max_epochs"    : 5000,
             "train_split"   : 0.5,
-            "loss"          : "BCELoss"
+            "loss"          : "BCEWithLogitsLoss"
         }
 
     ],
